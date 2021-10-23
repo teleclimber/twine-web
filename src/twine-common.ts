@@ -172,7 +172,7 @@ export class MessageRegistry {
 	}
 	assertMsgIDRange(msgID: number) {
 		if( msgID == 0 || msgID > 0xff ) {
-			throw new Error("message ID out of range");
+			throw new Error("message ID out of range: "+msgID);
 		}
 	}
 	msgIDIsLocal(msgID: number) :boolean {
@@ -181,7 +181,7 @@ export class MessageRegistry {
 	assertMsgIDRemote(msgID: number) {
 		this.assertMsgIDRange(msgID);
 		if( this.msgIDIsLocal(msgID) ) {
-			throw new Error("message ID in wrong range");
+			throw new Error("message ID in wrong range: "+msgID);
 		}
 	}
 
@@ -203,11 +203,11 @@ export class MessageRegistry {
 	}
 	registerMessage(raw: messageMeta) : Msg {
 		if( this.msgIDIsLocal(raw.msgID) ) {
-			throw new Error("message id is local, expected remote")
+			throw new Error("message id is local, expected remote: "+raw.msgID);
 		}
 	
 		if( this.messages.has(raw.msgID) ) {
-			throw new Error("Message id already registered");
+			throw new Error("Message id already registered: "+raw.msgID);
 		}
 	
 		let newMsg = new Msg(raw.service);
@@ -219,10 +219,10 @@ export class MessageRegistry {
 	closeMessage(msgID : number) : Msg {
 		let msgData = this.messages.get(msgID);
 		if( !msgData ) {
-			throw new Error("message ID not found");
+			throw new Error("message ID not found: "+msgID);
 		}
 		if( msgData.closed ) {
-			throw new Error("message was already closed");
+			throw new Error("message was already closed: "+msgID);
 		}
 		msgData.close();
 
@@ -231,7 +231,7 @@ export class MessageRegistry {
 	unregisterMessage(msgID: number) {
 		let msgData = this.messages.get(msgID)
 		if( !msgData ) {
-			throw new Error("message ID is not registered");
+			throw new Error("message ID is not registered: "+msgID);
 		}
 
 		msgData.close();
@@ -246,11 +246,11 @@ export class MessageRegistry {
 	getOpenMessage(msgID: number) : Msg {
 		let msgData = this.messages.get(msgID);
 		if( !msgData ) {
-			throw new Error("message ID not found: %v");
+			throw new Error("message ID not found: "+msgID);
 		}
 	
 		if( msgData.closed ) {
-			throw new Error("message ID is closed");
+			throw new Error("message ID is closed: "+msgID);
 		}
 	
 		return msgData;
@@ -258,7 +258,7 @@ export class MessageRegistry {
 	getMessageData(msgID:number) : Msg {
 		let msgData = this.messages.get(msgID)
 		if( !msgData ) {
-			throw new Error("message ID not found");
+			throw new Error("message ID not found: "+msgID);
 		}
 	
 		return msgData;
