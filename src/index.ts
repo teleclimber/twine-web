@@ -21,7 +21,7 @@ export default class TwineWebsocketClient {
 		this.msgReg = new MessageRegistry(1, 127);
 		this.logger = new MessageLogger(this.msgReg);
 
-		//@ts-ignore because don't need to bother changign type for window for this
+		//@ts-ignore because don't need to bother changing type for window for this
 		if( typeof window !== 'undefined' ) window.twine_logger = this.logger;
 	}
 	async startClient() {

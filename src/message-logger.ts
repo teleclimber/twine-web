@@ -18,15 +18,20 @@ export default class MessageLogger {
 	cur_i = 0;
 
 	constructor(private msgReg:MessageRegistry) {
-		this.record = !!window.sessionStorage.getItem('twine_logger_record');
+		if( typeof window !== 'undefined' ) {
+			this.record = !!window.sessionStorage.getItem('twine_logger_record');
+		}
 	}
 	startRecord() {
 		this.record = true;
-		window.sessionStorage.setItem('twine_logger_record', "record");
+		this._saveRecordFlag();
 	}
 	stopRecord() {
 		this.record = false;
-		window.sessionStorage.setItem('twine_logger_record', "");
+		this._saveRecordFlag();
+	}
+	private _saveRecordFlag() {
+		window.sessionStorage.setItem('twine_logger_record', this.record ? "record" : "");
 	}
 
 	logReceived(raw:messageMeta, reg_m:Msg) {
