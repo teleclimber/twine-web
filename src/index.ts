@@ -1,4 +1,5 @@
 import { services, commands, encodeMessageMeta, BytesToMessages, MessageBuffer, MessageRegistry, messageMeta, Message, Msg, SentMessageI, ReceivedMessageI, ReceivedReplyI } from './twine-common';
+import MessageLogger from './message-logger';
 
 export {SentMessageI, ReceivedMessageI, ReceivedReplyI};
 
@@ -14,8 +15,14 @@ export default class TwineWebsocketClient {
 	private _graceful: boolean = false;
 	// private connClosed: boolean;
 
+	private logger : MessageLogger;
+
 	constructor(private address:string) {
 		this.msgReg = new MessageRegistry(1, 127);
+		this.logger = new MessageLogger(this.msgReg);
+
+		//@ts-ignore because don't need to bother changign type for window for this
+		if( typeof window !== 'undefined' ) window.twine_logger = this.logger;
 	}
 	async startClient() {
 		return new Promise<void>((resolve, reject) => {
@@ -68,12 +75,16 @@ export default class TwineWebsocketClient {
 
 				// TODO: should try-catch this, and send Error if err
 				setTimeout(() => refMsgData.pushRefMessage(message), 0);
+
+				this.logger.logReceived(raw, msgData);
 			}
 			else if( raw.service === services.reply ) {
 				const msgData = this.msgReg.closeMessage(raw.msgID); // since this is a reply, this was an **outgoing** message id
 				const message = this.makeMessage(raw, undefined); // don't pass ref msg since it's a reply
 				message.service = msgData.service;
 				setTimeout(() => msgData.setReply(message), 0);
+
+				this.logger.logReceived(raw, msgData);
 			}
 			else if( raw.service === services.close ) { // handles OK and Error messages
 				const msgData = this.msgReg.getMessageData(raw.msgID)
@@ -91,6 +102,8 @@ export default class TwineWebsocketClient {
 				const message = this.makeMessage(raw, undefined) // we pass a message, but do not connect any ref msg data because the message is at end of life
 				message.service = msgData.service;
 				setTimeout(() => msgData.setReply(message), 0);
+
+				this.logger.logReceived(raw, msgData);
 			} else {
 				// Brand new message, check we're not graceful, then register message id
 				const msgData = this.msgReg.registerMessage(raw) // this is **incoming** message, maybe check it's in the right range
@@ -105,6 +118,8 @@ export default class TwineWebsocketClient {
 						message.sendError("terminating")
 					} else {
 						setTimeout(() => this.incomingQueue.push(message), 0);
+
+						this.logger.logReceived(raw, msgData);
 					}
 				}
 			}
@@ -114,17 +129,19 @@ export default class TwineWebsocketClient {
 	// SENDS...
 	async send(service: number, cmd: number, payload: Uint8Array|undefined) : Promise<SentMessageI> {
 		const newMsgID = this.msgReg.newMessage(service) // should maybe return an error in case no message ids left
-	
-		const m :SentMessageI = new Message({
+		const msg_meta:messageMeta = {
 			service: service,
 			command: cmd,
 			msgID: newMsgID,
 			refMsgID: 0,
 			payload: payload
-		}, this)
+		}
+		const m :SentMessageI = new Message(msg_meta, this)
 		m.msg = this.msgReg.getMessageData(newMsgID)
 			
 		await this._send(newMsgID, 0, service, cmd, payload);
+
+		this.logger.logSent(msg_meta, m.msg);
 	
 		return m;
 	}
@@ -135,6 +152,14 @@ export default class TwineWebsocketClient {
 		await this._send(newMsgID, 0, service, cmd, payload);
 
 		const msg = this.msgReg.getMessageData(newMsgID);
+
+		this.logger.logSent({
+			service: service,
+			command: cmd,
+			msgID: newMsgID,
+			refMsgID: 0,
+			payload: payload
+		}, msg);
 
 		const reply = await msg.waitReply();
 		//if(reply.error) throw reply.error;	// maybe don't thorw? maybe the message consumer should check the error?
@@ -152,12 +177,20 @@ export default class TwineWebsocketClient {
 	
 		await this._send(msgID, 0, services.reply, cmd, payload);
 
+		this.logger.logSent({
+			service: services.reply,
+			command: cmd,
+			msgID: msgID,
+			refMsgID: 0,
+			payload: payload
+		}, msgData);
+
 		const ack = await msgData.waitReply()
 		if( ack.error ) throw ack.error;	// hmm, is throwing really what we want to do here?	
 	}
 
 	async replyOKClose(msgID :number) {
-		this.msgReg.assertMsgIDRemote(msgID);
+		this.msgReg.assertMsgIDRemote(msgID);	// Suspicious? Send -> reply with payload -> replyOKClose?
 			
 		const msgData = this.msgReg.getMessageData(msgID);
 
@@ -173,6 +206,14 @@ export default class TwineWebsocketClient {
 	
 		await this._send(msgID, 0, services.close, commands.ok, undefined) // cmd is 0 on ok close?
 	
+		this.logger.logSent({
+			service: services.close,
+			command: commands.ok,
+			msgID: msgID,
+			refMsgID: 0,
+			payload: undefined
+		}, msgData);
+
 		this.msgReg.unregisterMessage(msgID);
 	}
 
@@ -193,6 +234,14 @@ export default class TwineWebsocketClient {
 	
 		await this._send(msgID, 0, services.close, commands.error, new TextEncoder().encode(err_str)) // cmd is 0 on ok close/err?
 	
+		this.logger.logSent({
+			service: services.close,
+			command: commands.error,
+			msgID: msgID,
+			refMsgID: 0,
+			payload: new TextEncoder().encode(err_str)
+		}, msgData);
+
 		this.msgReg.unregisterMessage(msgID);
 	}
 
@@ -206,18 +255,20 @@ export default class TwineWebsocketClient {
 			throw new Error("Message ID is closed");
 		}
 
-		const newMsgID = this.msgReg.newMessage(refMsgData.service)
-		
-		const m:SentMessageI = new Message({
+		const newMsgID = this.msgReg.newMessage(refMsgData.service);
+		const msg_meta:messageMeta = {
 			command:  cmd,
 			service:  services.refRequest,
 			msgID:    newMsgID,
 			refMsgID: refID,
 			payload
-		},this);
+		};
+		const m:SentMessageI = new Message(msg_meta,this);
 		m.msg = this.msgReg.getMessageData(newMsgID);
 
-		await this._send(newMsgID, refID, services.refRequest, cmd, payload)
+		await this._send(newMsgID, refID, services.refRequest, cmd, payload);
+
+		this.logger.logSent(msg_meta, m.msg);
 
 		return m
 	}
@@ -236,6 +287,14 @@ export default class TwineWebsocketClient {
 		await this._send(newMsgID, refID, services.refRequest, cmd, payload)
 		
 		const msg = this.msgReg.getMessageData(newMsgID)
+
+		this.logger.logSent({
+			command:  cmd,
+			service:  services.refRequest,
+			msgID:    newMsgID,
+			refMsgID: refID,
+			payload
+		}, msg);
 
 		return msg.waitReply();
 	}
@@ -292,12 +351,14 @@ export default class TwineWebsocketClient {
 		case commands.graceful:
 			newMsg = this.msgReg.registerMessage(raw);
 			message = this.makeMessage(raw, newMsg);
+			this.logger.logSent(raw, newMsg);
 			this.receivedGraceful(message);
 			break;
 	
 		case commands.ping:
 			newMsg = this.msgReg.registerMessage(raw);
 			message = this.makeMessage(raw, newMsg);
+			this.logger.logSent(raw, newMsg);
 			await message.reply(commands.pong, undefined);
 			break;
 
@@ -342,6 +403,7 @@ export default class TwineWebsocketClient {
 
 		this.incomingQueue.stop();
 	}
+
 }
 
 

@@ -1,12 +1,13 @@
 {
   "name": "twine-web",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Twine Protocol Implementation for the Frontend",
   "browser": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": ["dist/"],
   "scripts": {
     "build": "tsc",
+    "dev": "tsc --watch",
     "test": "jest --config=jest.config.json",
     "prepublish": "yarn test"
   },
